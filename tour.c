@@ -153,13 +153,15 @@ int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
 	destinationaddr.sin_addr.s_addr = iph->daddr;
 
 	
-	printf("Sending packet on route traversal socket to node %s\n",dest);
-	
+	printf("Sending packet on route traversal socket to next node in tour %s\n\n",dest);
+
 	sendbytes = sendto(rt,packet,sizeof(struct iphdr) + payload_buffer[0],0,(struct sockaddr*)&destinationaddr,sizeof(struct sockaddr));
 	if(sendbytes < 0)
 	{
 		printf("sendto function error %d \n", errno);
 	} 
+	
+	printf("*********************************************************\n\n");
 	return 0;
 }
 
@@ -245,32 +247,38 @@ int main(int argc, char const *argv[])
 	
 
 	
-	if(argc >= 2){
-	gethostname(sourcevm, sizeof sourcevm);
-	printf("Source vm : %s \n",sourcevm);
-	//Checking for first node, which cannot be source node
-	if(strcmp(argv[1],sourcevm) == 0){
-		printf("Cannot Start with Source vm. Enter different node \n");
-		exit(1);
+	if(argc >= 2 && argc <= 21)
+	{   //limiting number of nodes entered by user to be 20
+			gethostname(sourcevm, sizeof sourcevm);
+			printf("Source vm : %s \n",sourcevm);
+			//Checking for first node, which cannot be source node
+			if(strcmp(argv[1],sourcevm) == 0){
+				printf("Cannot Start with Source vm. Enter different node \n");
+				exit(1);
+			}
+			
+			//Checking for Consecutive nodes.consecutive nodes cannot be same
+			for(i=1;i<argc;i++){
+				if(strcmp(argv[i],argv[i-1]) == 0){
+					printf("Consecutive Nodes cannot be same. Enter different node \n");
+					exit(1);
+				}
+			}
+			
+			strcpy(dest,argv[1]); //first time destination is first node entered through command line
+			
+			//creating packet i.e data and header
+			packet1 = make_packet(argc,argv);
+			
+			
+			
+			//sending packet on rt socket
+			send_packet(sourcevm,dest,packet1);
 	}
-	
-	//Checking for Consecutive nodes.consecutive nodes cannot be same
-	for(i=1;i<argc;i++){
-		if(strcmp(argv[i],argv[i-1]) == 0){
-			printf("Consecutive Nodes cannot be same. Enter different node \n");
+	else if(argc > 21)
+	{
+			printf("more than 20 nodes entered. Please enter less then 20 nodes \n");
 			exit(1);
-		}
-	}
-	
-	strcpy(dest,argv[1]); //first time destination is first node entered through command line
-	
-	//creating packet i.e data and header
-	packet1 = make_packet(argc,argv);
-	
-	
-	
-	//sending packet on rt socket
-	send_packet(sourcevm,dest,packet1);
 	}
 	
 	while(1)
@@ -305,40 +313,40 @@ int main(int argc, char const *argv[])
 			char* rt_recv_payload = rtbuffer + sizeof(struct iphdr);
 			recvlen = rt_recv_payload[0];
 			ptr = rt_recv_payload[1];
-		
-			printf("received len  : %d \n",recvlen);
-			
-			printf("Identification Received : %d \n",ntohs(rt_recv_hdr->id));
-			
 			
 			if(ntohs(rt_recv_hdr->id) == IDENTIFICATION)
 			{
 			
-					printf("Received Valid Packet \n");
+					char* next_ptr;
+					char str[INET_ADDRSTRLEN],nextip[INET_ADDRSTRLEN];
+					struct hostent *he1;
+					struct in_addr nexthopaddr;
 					
 					he = gethostbyaddr(&(rt_recv_hdr->saddr),sizeof(rt_recv_hdr->saddr),AF_INET);
-					printf("Source Host name: %s\n", he->h_name);
+					//printf("Source Host name: %s\n", he->h_name);
 					
+					printf("*********************************************************\n\n");
+					printf("Received Valid Packet from source %s \n\n",he->h_name);
+
 					gethostname(currentnode, sizeof currentnode);
 
 					ticks = time(NULL);
 					snprintf(time_buff, sizeof(time_buff), "%.24s\r\n", ctime(&ticks));
 
 					printf("<%s> received source routing packet from %s\n",time_buff,he->h_name);
+				
 					count++;
 					
 					if(count == 1)
 					{
-						printf("%s node is visited for the first time \n",currentnode);
+						printf("%s node is visited for the first time \n\n",currentnode);
 						 
 						char multicast[16];
-						char temp[MAXLINE],nextip[INET_ADDRSTRLEN];
+						char temp[MAXLINE];
 						struct sockaddr_in sasend, sarecv;
 						socklen_t salen;
-						char* next_ptr;
-						char str[INET_ADDRSTRLEN];
-						struct hostent *he1;
-						struct in_addr nexthopaddr;
+						
+					
 						
 						memcpy(&multicast,&rt_recv_payload[recvlen-6],4);
 
@@ -354,17 +362,22 @@ int main(int argc, char const *argv[])
 						memcpy(&sarecv, &sasend, salen);
 						bind(udprecv_socket, (struct sockaddr*)&sarecv, salen);
 
-						mcast_join(udprecv_socket, (struct sockaddr*)&sasend, salen, NULL, 0);
-				
+						mcast_join(udprecv_socket, (struct sockaddr*)&sasend, salen, NULL, 0); 
+
+					}
+					else
+					{
+						printf("%s node is visited for the %d time \n\n",currentnode,count);
+					}
+					
 						//sending packet to next node
-						
-						printf("recieved pointer : %d \n",rt_recv_payload[1]);
 						
 						
 						//last node
 						if(rt_recv_payload[1] == (recvlen-6)){
 							
-							printf("Last Node \n");
+							printf("Last Node \n\n");
+							printf("*********************************************************\n\n");
 							exit(1);
 						
 						}
@@ -379,13 +392,7 @@ int main(int argc, char const *argv[])
 						inet_pton(AF_INET,nextip, &nexthopaddr);
 						he1 = gethostbyaddr(&nexthopaddr, sizeof nexthopaddr, AF_INET);
 
-						send_packet(currentnode,he1->h_name,rtbuffer); 
-
-					}
-					else
-					{
-						printf("%s node is visited for the %d time \n",currentnode,count);
-					}
+						send_packet(currentnode,he1->h_name,rtbuffer);
 					
 			}
 			else
