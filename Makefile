@@ -24,5 +24,6 @@ tour.o: tour.c
 	${CC} ${CFLAGS} -c tour.c
 	
 clean:
-	rm arp_astayal arp.o get_hw_addrs get_hw_addrs.o tour_astayal tour.o
+	rm arp_astayal arp.o tour_astayal tour.o
 
+	
