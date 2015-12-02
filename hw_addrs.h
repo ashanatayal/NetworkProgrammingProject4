@@ -1,9 +1,11 @@
 /* Our own header for the programs that need hardware address info. */
 #include "unp.h"
 #include <stdio.h>
+#include <string.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <linux/if_ether.h>
-#include <linux/if_arp.h>
+//#include <linux/if_arp.h>
 #include <linux/if_packet.h>
 #include <net/ethernet.h>
 #include <netinet/ip_icmp.h>
@@ -12,6 +14,8 @@
 #include <setjmp.h>
 #include <sys/un.h>
 #include <errno.h>
+#include <netinet/in_systm.h>
+
 
 #define	IF_NAME		16	/* same as IFNAMSIZ    in <net/if.h> */
 #define	IF_HADDR	 6	/* same as IFHWADDRLEN in <net/if.h> */
@@ -27,12 +31,7 @@ struct hwa_info {
   struct  hwa_info  *hwa_next;	/* next of these structures */
 };
 
-struct IP_PAYLOAD{
-	char listTour[100][MAXLINE];
-	char multicastIP[16];
-	int udpPort;
 
-};
 
 /* function prototypes */
 struct hwa_info	*get_hw_addrs();
