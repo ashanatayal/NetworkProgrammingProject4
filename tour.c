@@ -1,24 +1,17 @@
 #include "hw_addrs.h"
 
-
-#define IP_PROTOCOL 105
-#define MULTICAST_IP "220.255.255.19"
+#define IP_PROTOCOL 10
+#define MULTICAST_IP "225.255.255.19"
 #define MPORT 13854
-#define IDENTIFICATION 212
-#define ETH_HDRLEN 14  // Ethernet header length
-#define IP4_HDRLEN 20  // IPv4 header length
-#define ICMP_HDRLEN 8  // ICMP header length for echo request, excludes data
-#define DATALEN 56
-#define ETH_PAYLOAD_LEN IP4_HDRLEN + ICMP_HDRLEN + DATALEN
-#define ETH_PACKET_LEN ETH_HDRLEN + ETH_PAYLOAD_LEN
+#define IDENTIFICATION 2779
+#define ARP_PATH "kimi"
 
 //globals
 int pg,rt,udpsend_socket,pf_socket,udprecv_socket;
 char sourcevm[5];
 int len;
-pid_t   pid; 
-char previousnode[MAXLINE];
-char currentnode[MAXLINE];
+int datalen = 56;
+
 
 char* make_packet(int argc, char const *argv[])
 {
@@ -175,283 +168,89 @@ int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
 }
 
 
- uint16_t in_cksum (uint16_t * addr, int len)
- {
-     int     nleft = len;
-     uint32_t sum = 0;
-     uint16_t *w = addr;
-     uint16_t answer = 0;
-
-     while (nleft > 1) {
-         sum += *w++;
-         nleft -= 2;
-     }
-       
-     if (nleft == 1) {
-         * (unsigned char *) (&answer) = * (unsigned char *) w;
-         sum += answer;
-     }
-
-         /* add back carry outs from top 16 bits to low 16 bits */
-     sum = (sum >> 16) + (sum & 0xffff); /* add hi 16 to low 16 */
-     sum += (sum >> 16);     /* add carry */
-     answer = ~sum;     /* truncate to 16 bits */
-     return (answer);
- }
- 
- 
- void echo_request()
- {
-
-	char src_mac[6],dst_mac[6];
-	struct sockaddr_ll addr;
-	char dst_ip[INET_ADDRSTRLEN], src_ip[INET_ADDRSTRLEN],ethernet_type[MAXLINE];
-	void* buffer = (void*)malloc(ETH_PACKET_LEN);
-	unsigned char* etherhead = buffer ;
-	int i,send_result;
-	struct ip *send_iphdr=(struct ip*) buffer+14;
-	struct icmp *send_icmphdr =(struct icmp*) buffer+34;
-	struct ethhdr *eh = (struct ethhdr *)etherhead;
-	int     icmplen;
-	int     nsent;               
-	struct hostent *he;
-	struct hwa_info	*hwa, *hwahead;
-    struct sockaddr	*sa;
-    char   *ptr;
-    int    prflag,status;
+int areq (struct sockaddr *IPaddr, socklen_t sockaddrlen, struct hwaddr *HWaddr)
+{
+    int unixdomain_socket;
+    struct sockaddr_un arp_address;
+    int nbytes_send,nbytes_rcv;
+    char IPaddress[INET_ADDRSTRLEN];
+    struct sockaddr_in *IP_in_addr;
+    char eth_buf[MAXLINE];
     
-	
-	
-	for (hwahead = hwa = Get_hw_addrs(); hwa != NULL; hwa = hwa->hwa_next)
+    IP_in_addr = (struct sockaddr_in *)IPaddr;
+    printf("\n The IP address to be resolved in AREQ is %s \n",inet_ntop(AF_INET, &IP_in_addr->sin_addr, IPaddress, INET_ADDRSTRLEN));
+    
+    
+    unixdomain_socket= socket(AF_LOCAL, SOCK_STREAM, 0);
+    
+    if(unixdomain_socket < 0)
     {
-        if (strncmp(hwa->if_name, "eth0",4) == 0)
-        {
-            
-            if ((sa = hwa->ip_addr) != NULL)
-            {
-           
-               
-                memcpy(src_mac,hwa->if_haddr,6);
-            }
-            
-            prflag = 0;
-            i = 0;
-            do {
-                if (hwa->if_haddr[i] != '\0') {
-                    prflag = 1;
-                    break;
-                }
-            } while (++i < IF_HADDR);
-            
-            if (prflag) {
-                printf("Source MAC Address = ");
-                ptr = hwa->if_haddr;
-                i = IF_HADDR;
-                do {
-                    
-                    printf("%.2x%s", *ptr++ & 0xff, (i == 1) ? " " : ":");
-                    
-                } while (--i > 0);
-            }
-			printf("\n");
-        }
+        printf("\n Error in creation of Unix socket in areq \n ");
+    }
+    
+    //unlink(ARP_PATH);
+    bzero(&arp_address, sizeof(arp_address));
+    arp_address.sun_family = AF_LOCAL;
+    strcpy(arp_address.sun_path, ARP_PATH);
+    
+    
+    
+    if (connect(unixdomain_socket, (struct sockaddr*)&arp_address, sizeof(arp_address)) < 0)
+    {
+        printf("\n Error in connecting to unix socket in areq \n");
+    }
+    
+    
+    if(nbytes_send = write(unixdomain_socket, IPaddress, INET_ADDRSTRLEN)<0)
+    {
+        
+        printf(" Error in writing to the connection socket \n");
         
     }
-    //free_hwa_info(hwahead);
-	
-	
-	// Set destination MAC address: you need to fill these out
-	dst_mac[0] = 0x00;
-	dst_mac[1] = 0x0c;
-	dst_mac[2] = 0x29; 
-	dst_mac[3] = 0x49;
-	dst_mac[4] = 0x3f;
-	dst_mac[5] = 0x5b;
-	
-	dst_mac[6] = 0x00;
-	dst_mac[7] = 0x00;
-	
 
-	
-	
-	he = gethostbyname(currentnode);
-	if (he == NULL) { 
-		herror("gethostbyname");
-		exit(1);
-	}
-	bzero(src_ip,sizeof(src_ip));
-	inet_ntop(he->h_addrtype,he->h_addr_list[0],src_ip,INET_ADDRSTRLEN);
-	//printf("\n%s source ip\n",src_ip);
-	
-	
-	he = gethostbyname(previousnode);
-	if (he == NULL) { 
-		herror("gethostbyname");
-		exit(1);
-	}
-	bzero(dst_ip,sizeof(dst_ip));
-	inet_ntop(he->h_addrtype,he->h_addr_list[0],dst_ip,INET_ADDRSTRLEN);
-	//printf("\n%s destination ip \n",dst_ip);
-
-	//ip header
-	send_iphdr->ip_hl = 5;
-   
-	send_iphdr->ip_v = 4;
-	send_iphdr->ip_tos = 0;
-
-	send_iphdr->ip_len = htons(ETH_PAYLOAD_LEN);   // Total length of datagram (16 bits): IP header + ICMP header + ICMP data
-	send_iphdr->ip_id = htons(0); // ID sequence number (16 bits): unused, since single datagram
-	send_iphdr->ip_ttl = 255;
-	 send_iphdr->ip_off =0; 
-	send_iphdr->ip_p = IPPROTO_ICMP;
-	
-	
-	 // Source IPv4 address (32 bits)
-  if ((status = inet_pton (AF_INET, src_ip, &(send_iphdr->ip_src))) != 1) {
-    fprintf (stderr, "inet_pton() failed.\nError message: %s", strerror (status));
-    exit (EXIT_FAILURE);
-  }
-
-  // Destination IPv4 address (32 bits)
-  if ((status = inet_pton (AF_INET, dst_ip, &(send_iphdr->ip_dst))) != 1) {
-    fprintf (stderr, "inet_pton() failed.\nError message: %s", strerror (status));
-    exit (EXIT_FAILURE);
-  }
-
-	
-    send_iphdr->ip_sum = 0;
-    send_iphdr->ip_sum = in_cksum((uint16_t *) send_iphdr, 20);
-	
-	
-	
-	
-	
-	
-	pid = getpid() & 0xffff; 
-	
-	//icmp header
-	send_icmphdr->icmp_type = ICMP_ECHO;
-	send_icmphdr->icmp_code = 0;
-	send_icmphdr->icmp_id = pid;
-	send_icmphdr->icmp_seq = nsent++;
-    memset (send_icmphdr->icmp_data, 0xa5, DATALEN); /* fill with pattern */
-    Gettimeofday ((struct timeval *) send_icmphdr->icmp_data, NULL);
-
-    icmplen = 8 + DATALEN;           /* checksum ICMP header and data */
-    send_icmphdr->icmp_cksum = 0;
-    send_icmphdr->icmp_cksum = in_cksum ((u_short *)send_icmphdr, icmplen);
-	
-	
-	//Fill out ethernet frame header.
-    addr.sll_family   = PF_PACKET;
-    addr.sll_protocol = htons(ETH_P_IP);
-    addr.sll_ifindex  = 2;
-    addr.sll_pkttype  = PACKET_OTHERHOST;
-    addr.sll_halen    = ETH_ALEN;
-    
-	memcpy (addr.sll_addr, dst_mac, 6);
-    addr.sll_addr[6]  = 0x00;/*not used*/
-    addr.sll_addr[7]  = 0x00;/*not used*/
-	
-	
-	//Ethernet Buffer = Ethernet Header(src mac + dest mac + ethernet type) + Payload(IP header + ICMP header + ICMP data)
-	
-	
-	memcpy ((void *)buffer, (void *)dst_mac, 6);
-	memcpy ((void *)(buffer + 6), (void *)src_mac, 6);
-	eh->h_proto = htons(ETH_P_IP);
-	
-
-	// IPv4 header
-	memcpy ((void *)(buffer + 14), (void *)send_iphdr, sizeof(struct ip));
-	
-	// ICMP header
-	memcpy ((void *)(buffer + 14 + 20), (void *)send_icmphdr, icmplen);
-	
-	send_result = sendto(pf_socket, buffer, ETH_PACKET_LEN, 0,
-                                 (struct sockaddr*)&addr, sizeof(addr));
-								 
-	
-    if (send_result == -1) 
-	{
-        printf("Sending error : %d",errno);
-        exit(1);
-                
+    if (nbytes_rcv = read(unixdomain_socket, eth_buf, sizeof(eth_buf))<0);
+    {
+        printf("Read Error on the connection socket \n");
     }
-
-	printf("Ethernet Packet sent \n");
-	
- }
-
- void tv_sub (struct timeval *out, struct timeval *in)
- {
-     if ((out->tv_usec -= in->tv_usec) < 0) {     /* out -= in */
-         --out->tv_sec;
-         out->tv_usec += 1000000;
-     }
-     out->tv_sec -= in->tv_sec;
- }
-
- 
- void sig_alrm (int signo)
- {
     
-     echo_request();
-     alarm(1);
-     return;
- }
- 
- void proc(char *ptr, ssize_t len, struct timeval *tvrecv)
- {
-     int     hlenl, icmplen;
-     double  rtt;
-     struct ip *ip;
-     struct icmp *icmp;
-     struct timeval *tvsend;
+    return 0;
+    
+}
 
-	
-	 
-	 //printf("previous node :%s \n",previousnode);
-     ip = (struct ip *) ptr;      /* start of IP header */
-     hlenl = ip->ip_hl << 2;      /* length of IP header */
-     if (ip->ip_p != IPPROTO_ICMP)
-         return;                  /* not ICMP */
+int echo_request(struct hwaddr *HWaddr)
+{
 
-     icmp = (struct icmp *) (ptr + hlenl);   /* start of ICMP header */
-     if ( (icmplen = len - hlenl) < 8)
-         return;                  /* malformed packet */
+	/* int     len;
+    struct icmp *icmp;
 
-     if (icmp->icmp_type == ICMP_ECHOREPLY) {
-         if (icmp->icmp_id != pid)
-             return;                /* not a response to our ECHO_REQUEST */
-         if (icmplen < 16)
-             return;                /* not enough data to use */
+    icmp = (struct icmp *) sendbuf;
+    icmp->icmp_type = ICMP_ECHO;
+    icmp->icmp_code = 0;
+    icmp->icmp_id = pid;
+    icmp->icmp-seq = nsent++;
+    memset (icmp->icmp_data, 0xa5, datalen); /* fill with pattern */
+    //Gettimeofday ((struct timeval *) icmp->icmp_data, NULL);
 
-         tvsend = (struct  timeval  *) icmp->icmp_data;
-         tv_sub (tvrecv, tvsend);
-         rtt = tvrecv->tv_sec * 1000.0 + tvrecv->tv_usec / 1000.0;
+    //len = 8 + datalen;           /* checksum ICMP header and data */
+    //icmp->icmp_cksum = 0;
+    //icmp->icmp_cksum = in_cksum ((u_short *) icmp, len);
 
-         printf ("%d bytes %s: seq=%u, ttl=%d, rtt=%.3f ms\n",
-                 icmplen,previousnode,
-                 icmp->icmp_seq, ip->ip_ttl, rtt);
+    //Sendto (sockfd, sendbuf, len, 0, pr->sasend, pr->salen); */
 
-     } 
- }
-
-
+}
 
 
 int main(int argc, char const *argv[])
 {
 	
 	
-	int i,len,j,k;
+	int i,len;
 	const int on = 1;
 	char packet[MAXLINE];
-	char dest[MAXLINE];
+	char dest[MAXLINE],currentnode[MAXLINE];
 	int maxfdp,nready,fdp,rt_data;
     fd_set rset;
-	char rtbuffer[MAXLINE];
+	char rtbuffer[MAXLINE],tempip[MAXLINE];
     struct sockaddr_in rtaddr;
 	char    time_buff[MAXLINE];
     time_t ticks;
@@ -459,30 +258,17 @@ int main(int argc, char const *argv[])
 	int count = 0;
 	int recvlen,ptr;
 	char* packet1;
-	char buff[4];
-	char pgbuff[MAXLINE];
-    struct sockaddr_in pgaddr;
-	struct ip *recv_iphdr;
-	struct icmp *recv_icmphdr;
-	uint8_t *recv_ether_frame;
-	int     hlenl, icmplen,status;
-		
-	struct timeval tval;
-	char *rec_ip;
-	int recvbytes;
-
-	
-	
-	
-	
-	
+    char* next_ptr;
+    char str[INET_ADDRSTRLEN],nextip[INET_ADDRSTRLEN],previousip[INET_ADDRSTRLEN];
+    struct hostent *he1;
+    struct in_addr nexthopaddr;
+    struct sockaddr_in previoushopaddr;
+    struct hwaddr HWaddr;
 	
 	if(argc < 1)
     {
         printf("error");
     }
-	
-
 	
 	
 	//creating 4 sockets two IP raw socket, PF_Packet, UDP socket 
@@ -540,29 +326,10 @@ int main(int argc, char const *argv[])
 		 printf("error while set socket \n");
 	}
 	
-	Signal(SIGALRM, sig_alrm);
+
 	
-	if(argc >= 2)
-	{   
-	
-	
-			/* //Entering anything other than vm1-vm10
-			for(j = 0;j<argc;j++){
-				int isCorrectName = 1;
-				for(k=1;k<=10;k++){
-					sprintf(buff, "vm%d", k); 
-					if(strcmp(argv[i],buff) == 0)
-					{
-						isCorrectName = 0;
-						break;
-					}
-				}
-				if(isCorrectName != 0){
-					printf("One of the Entered node is incorrect.Enter correct node name from vm1-vm10 \n");
-					exit(1);
-				}
-			} */
-	
+	if(argc >= 2 && argc <= 21)
+	{   //limiting number of nodes entered by user to be 20
 			gethostname(sourcevm, sizeof sourcevm);
 			printf("Source vm : %s \n",sourcevm);
 			//Checking for first node, which cannot be source node
@@ -589,6 +356,11 @@ int main(int argc, char const *argv[])
 			//sending packet on rt socket
 			send_packet(sourcevm,dest,packet1);
 	}
+	else if(argc > 21)
+	{
+			printf("more than 20 nodes entered. Please enter less then 20 nodes \n");
+			exit(1);
+	}
 	
 	while(1)
     {
@@ -598,14 +370,12 @@ int main(int argc, char const *argv[])
 		FD_SET(udprecv_socket, &rset);
         fdp = max(rt,pg) ;
 		maxfdp = max(fdp,udprecv_socket);
-       // nready = select(maxfdp, &rset, NULL, NULL, NULL);
+        nready = select(maxfdp, &rset, NULL, NULL, NULL);
         if ((nready = select(maxfdp+1, &rset, NULL, NULL, NULL)) < 0)
         {
+            printf(" Select error: %d\n", errno);
             continue;
         }
-		
-		
-		
 		
 		//if packet is received on route traversal socket
 		if (FD_ISSET(rt, &rset))
@@ -622,40 +392,27 @@ int main(int argc, char const *argv[])
 			
 			struct iphdr *rt_recv_hdr = (struct iphdr*)rtbuffer;
 			char* rt_recv_payload = rtbuffer + sizeof(struct iphdr);
-		
 			recvlen = rt_recv_payload[0];
 			ptr = rt_recv_payload[1];
-			
-			he = gethostbyaddr(&(rt_recv_hdr->saddr),sizeof(rt_recv_hdr->saddr),AF_INET);
-			strcpy(previousnode,he->h_name);
-			
-			
-			gethostname(currentnode, sizeof currentnode);
-			
 			
 			if(ntohs(rt_recv_hdr->id) == IDENTIFICATION)
 			{
 			
-					char* next_ptr;
-					char str[INET_ADDRSTRLEN],nextip[INET_ADDRSTRLEN],previousip[INET_ADDRSTRLEN];
-					struct hostent *he1;
-					struct in_addr nexthopaddr,previoushopaddr;
-					socklen_t socklen = sizeof(struct sockaddr_in);
-					//struct hwaddr HWaddr;
 					
+                
+					socklen_t socklen = sizeof(struct sockaddr_in);
+					he = gethostbyaddr(&(rt_recv_hdr->saddr),sizeof(rt_recv_hdr->saddr),AF_INET);
 					//printf("Source Host name: %s\n", he->h_name);
 					
 					printf("*********************************************************\n\n");
-					printf("Received Valid Packet from source %s \n\n",previousnode);
+					printf("Received Valid Packet from source %s \n\n",he->h_name);
 
-					
+					gethostname(currentnode, sizeof currentnode);
 
 					ticks = time(NULL);
 					snprintf(time_buff, sizeof(time_buff), "%.24s\r\n", ctime(&ticks));
-					
-				
 
-					printf("<%s> received source routing packet from %s\n",time_buff,previousnode);
+					printf("<%s> received source routing packet from %s\n",time_buff,he->h_name);
 				
 					count++;
 					
@@ -692,32 +449,28 @@ int main(int argc, char const *argv[])
 						printf("%s node is visited for the %d time \n\n",currentnode,count);
 					}
 					
+						//sending packet to next node
+						
+						
 						//last node
-						if(rt_recv_payload[1] == (recvlen-6))
-						{
+						if(rt_recv_payload[1] == (recvlen-6)){
 							
 							printf("Last Node \n\n");
 							printf("*********************************************************\n\n");
 							
 							
 							printf("Previous node IP %s \n",inet_ntop(AF_INET,he->h_addr_list[0],previousip,INET_ADDRSTRLEN));
-							inet_pton(AF_INET,previousip, &previoushopaddr);
-							
-							//calling areq routine to get hardware address of previous node
+							inet_pton(AF_INET,previousip, &(previoushopaddr.sin_addr));
+							printf("Previous node IP temp %s \n",inet_ntop(AF_INET,&(previoushopaddr.sin_addr),tempip,INET_ADDRSTRLEN));
 						
+
 						
-							//areq((struct sockaddr *)&previoushopaddr,socklen,&HWaddr);
-							
-							//ping
-							printf("PING %s (%s): %d data bytes\n", previousip, previousip, DATALEN);
+							areq((struct sockaddr *)&previoushopaddr,socklen,&HWaddr);
 							
 							
-						
-							sig_alrm (SIGALRM); 
-						
-							
-							continue;
-							
+							printf("PING %s (%s): %d data bytes\n", previousip, previousip, datalen);
+                            exit(1);
+							//echo_request(&HWaddr);
 						
 						}
 						
@@ -730,27 +483,22 @@ int main(int argc, char const *argv[])
 						
 						inet_pton(AF_INET,nextip, &nexthopaddr);
 						he1 = gethostbyaddr(&nexthopaddr, sizeof nexthopaddr, AF_INET);
-						
+
+						send_packet(currentnode,he1->h_name,rtbuffer);
 						
 						//calling areq routine to get hardware address of previous node
 						
+						
+						
 						printf("Previous node IP %s \n",inet_ntop(AF_INET,he->h_addr_list[0],previousip,INET_ADDRSTRLEN));
-						inet_pton(AF_INET,previousip, &previoushopaddr);
+						inet_pton(AF_INET,previousip, &(previoushopaddr.sin_addr));
+						printf("Previous node IP temp %s \n",inet_ntop(AF_INET,&(previoushopaddr.sin_addr),tempip,INET_ADDRSTRLEN));
+						areq((struct sockaddr *)&previoushopaddr,socklen,&HWaddr);
 						
-						//areq((struct sockaddr *)&previoushopaddr,socklen,&HWaddr);
+						printf("PING %s (%s): %d data bytes\n", previousip, previousip, datalen);
+                exit(1);
 						
-						//ping
-						printf("PING %s (%s): %d data bytes\n", previousip, previousip, DATALEN);
-						
-						sig_alrm (SIGALRM); 
-						
-						
-						//forwarding packet
-						send_packet(currentnode,he1->h_name,rtbuffer);
-						
-						
-						
-						
+						//echo_request(&HWaddr);
 			}
 			else
 			{
@@ -759,25 +507,9 @@ int main(int argc, char const *argv[])
 		}
 		
 		//if packet is received on ping socket
-		if (FD_ISSET(pg, &rset))
+		/* if (FD_ISSET(pg, &rset))
         {
-		
-		
-			//printf("Inside Ping socket \n");
-			memset(pgbuff, 0, sizeof(pgbuff));
-			memset (&pgaddr, 0, sizeof (pgaddr));
-
-			socklen_t pglen = sizeof(pgaddr);
-			recvbytes = recvfrom(pg, pgbuff, IP_MAXPACKET, 0, (struct sockaddr*)&pgaddr, &pglen);
-
-			Gettimeofday (&tval, NULL);
-
-			proc(pgbuff, recvbytes,&tval);
-
-	
-			
-				
-		} 
+		} */
 		
 		//if packet is received on unix domain socket
 		/* if (FD_ISSET(udprecv_socket, &rset))
@@ -785,5 +517,3 @@ int main(int argc, char const *argv[])
 		} */
 	}
 }
-
-
