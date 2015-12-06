@@ -11,7 +11,7 @@
 #define DATALEN 56
 #define ETH_PAYLOAD_LEN IP4_HDRLEN + ICMP_HDRLEN + DATALEN
 #define ETH_PACKET_LEN ETH_HDRLEN + ETH_PAYLOAD_LEN
-
+#define ARP_PATH "kimi"
 
 
 //globals
@@ -23,6 +23,8 @@ char previousnode[MAXLINE];
 char currentnode[MAXLINE];
 char rtbuffer[MAXLINE];
 char nextnode[MAXLINE];
+struct hwaddr HWaddr;
+
 
 char* make_packet(int argc, char const *argv[])
 {
@@ -166,7 +168,7 @@ int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
 	destinationaddr.sin_addr.s_addr = iph->daddr;
 
 	
-	printf("Sending packet on route traversal socket to next node in tour %s\n\n",dest);
+	printf("Sending packet on route traversal socket to next node in tour %s\n\n", dest);
 
 	sendbytes = sendto(rt,packet,sizeof(struct iphdr) + payload_buffer[0],0,(struct sockaddr*)&destinationaddr,sizeof(struct sockaddr));
 	if(sendbytes < 0)
@@ -176,6 +178,82 @@ int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
 	
 	printf("*********************************************************\n\n");
 	return 0;
+}
+
+
+int areq (struct sockaddr *IPaddr, socklen_t sockaddrlen, struct hwaddr *HWaddr)
+{
+    int unixdomain_socket;
+    struct sockaddr_un arp_address;
+    int nbytes_send,nbytes_rcv;
+    char IPaddress[INET_ADDRSTRLEN];
+    struct sockaddr_in *IP_in_addr;
+    char eth_buf[MAXLINE];
+    char* ptr;
+    int i;
+    int j;
+	
+    IP_in_addr = (struct sockaddr_in *)IPaddr;
+	
+	inet_ntop(AF_INET, &IP_in_addr->sin_addr, IPaddress, INET_ADDRSTRLEN);
+   // printf("\n The IP address to be resolved in AREQ is %s \n",inet_ntop(AF_INET, &IP_in_addr->sin_addr, IPaddress, INET_ADDRSTRLEN));
+    
+    
+    unixdomain_socket= socket(AF_LOCAL, SOCK_STREAM, 0);
+    
+    if(unixdomain_socket < 0)
+    {
+        printf("\n Error in creation of Unix socket in areq \n ");
+    }
+    
+    //unlink(ARP_PATH);
+    bzero(&arp_address, sizeof(arp_address));
+    arp_address.sun_family = AF_LOCAL;
+    strcpy(arp_address.sun_path, ARP_PATH);
+    
+    
+    
+    if (connect(unixdomain_socket, (struct sockaddr*)&arp_address, sizeof(arp_address)) < 0)
+    {
+        printf("\n Error in connecting to unix socket in areq \n");
+    }
+    
+    
+    if(nbytes_send = write(unixdomain_socket, IPaddress, INET_ADDRSTRLEN)<0)
+    {
+        
+        printf(" Error in writing to the connection socket \n");
+        
+    }
+
+    if (nbytes_rcv = read(unixdomain_socket, eth_buf, 6)<0);
+    {
+        printf("Read Error on the connection socket \n");
+    }
+    
+    //printf(" %d bytes received from socket \n",nbytes_rcv);
+    
+    
+   printf("Destination MAC Address = ");
+    ptr = eth_buf;
+
+    i = 6;
+  
+	for(j=0;j<6;j++){
+	  
+	   HWaddr->sll_addr[j] = eth_buf[j] & 0xff;
+	 }
+         
+    do {
+        
+        printf("%.2x%s", *ptr++ & 0xff, (i == 1) ? " " : ":");
+        
+    } while (--i > 0);
+    
+	printf("\n");
+    
+    return 0;
+    
 }
 
 
@@ -265,12 +343,12 @@ int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
 	
 	
 	// Set destination MAC address: you need to fill these out
-	dst_mac[0] = 0x00;
-	dst_mac[1] = 0x0c;
-	dst_mac[2] = 0x29; 
-	dst_mac[3] = 0x49;
-	dst_mac[4] = 0x3f;
-	dst_mac[5] = 0x5b;
+	dst_mac[0] = HWaddr.sll_addr[0];
+	dst_mac[1] = HWaddr.sll_addr[1];
+	dst_mac[2] = HWaddr.sll_addr[2]; 
+	dst_mac[3] = HWaddr.sll_addr[3];
+	dst_mac[4] = HWaddr.sll_addr[4];
+	dst_mac[5] = HWaddr.sll_addr[5];
 	dst_mac[6] = 0x00;
 	dst_mac[7] = 0x00;
 
@@ -402,8 +480,6 @@ int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
      struct icmp *icmp;
      struct timeval *tvsend;
 
-	
-	 
 	 //printf("previous node :%s \n",previousnode);
      ip = (struct ip *) ptr;      /* start of IP header */
      hlenl = ip->ip_hl << 2;      /* length of IP header */
@@ -428,7 +504,8 @@ int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
                  icmplen,previousnode,
                  icmp->icmp_seq, ip->ip_ttl, rtt);
 		printf("*********************************************************\n\n");
-				 
+		
+		
 		send_packet(currentnode,nextnode,rtbuffer);
 
      } 
@@ -461,14 +538,14 @@ int main(int argc, char const *argv[])
 	char* next_ptr;
 	char str[INET_ADDRSTRLEN],nextip[INET_ADDRSTRLEN],previousip[INET_ADDRSTRLEN];
 	struct hostent *he1;
-	struct in_addr nexthopaddr,previoushopaddr;
+	struct sockaddr_in nexthopaddr,previoushopaddr;
 	socklen_t socklen = sizeof(struct sockaddr_in);
-	//struct hwaddr HWaddr;
 	char multicast[16];
 	char temp[MAXLINE];
 	struct sockaddr_in sasend, sarecv;
 	socklen_t salen;
 
+	
 	
 	if(argc < 1)
     {
@@ -597,7 +674,7 @@ int main(int argc, char const *argv[])
 			he = gethostbyaddr(&(rt_recv_hdr->saddr),sizeof(rt_recv_hdr->saddr),AF_INET);
 			strcpy(previousnode,he->h_name);
 			printf("Previous node IP %s \n",inet_ntop(AF_INET,he->h_addr_list[0],previousip,INET_ADDRSTRLEN));
-			inet_pton(AF_INET,previousip, &previoushopaddr);
+			inet_pton(AF_INET,previousip, &previoushopaddr.sin_addr);
 			
 			//current node
 			gethostname(currentnode, sizeof currentnode);
@@ -652,7 +729,8 @@ int main(int argc, char const *argv[])
 						
 						//ping
 						printf("*********************************************************\n\n");
-						printf("PING %s (%s): %d data bytes\n", previousip, previousip, DATALEN);
+						areq((struct sockaddr *)&previoushopaddr,socklen,&HWaddr);
+						printf("PING %s (%s): %d data bytes\n\n", previousip, previousip, DATALEN);
 						sig_alrm (SIGALRM); 
 						continue;
 						
@@ -663,13 +741,15 @@ int main(int argc, char const *argv[])
 					next_ptr = rt_recv_payload + rt_recv_payload[1];
 					memcpy(str,next_ptr,4);
 					printf("Next node IP %s \n",inet_ntop(AF_INET,str,nextip,INET_ADDRSTRLEN));
-					inet_pton(AF_INET,nextip, &nexthopaddr);
-					he1 = gethostbyaddr(&nexthopaddr, sizeof nexthopaddr, AF_INET);
+					inet_pton(AF_INET,nextip, &nexthopaddr.sin_addr);
+					he1 = gethostbyaddr(&nexthopaddr.sin_addr, sizeof nexthopaddr, AF_INET);
 					strcpy(nextnode,he1->h_name);
+					printf("nextnode %s\n",nextnode);
 			
 					//ping
 					printf("*********************************************************\n\n");
-					printf("PING %s (%s): %d data bytes\n", previousip, previousip, DATALEN);
+					areq((struct sockaddr *)&previoushopaddr,socklen,&HWaddr);
+					printf("PING %s (%s): %d data bytes\n\n", previousip, previousip, DATALEN);
 					sig_alrm (SIGALRM); 
 			}
 			else

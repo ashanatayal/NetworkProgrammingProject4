@@ -45,6 +45,7 @@ unsigned char mac_address[IF_HADDR];
 int if_index;
 int pf_packet;
 int unixdomain_socket;
+int acceptfd;
 
 
 // Define a struct for ARP header
@@ -236,11 +237,6 @@ int find_mac_address(char resolve_ip[INET_ADDRSTRLEN],char src_ip[INET_ADDRSTRLE
         memset(parphdr_send->target_mac,0,ETH_ALEN);
         memcpy(parphdr_send->target_ip,resolve_ip,16);
         
-        
-        
-        
-        
-        
         /*RAW communication*/
         socket_address.sll_family   = PF_PACKET;
         /*we don't use a protocoll above ethernet layer
@@ -270,8 +266,6 @@ int find_mac_address(char resolve_ip[INET_ADDRSTRLEN],char src_ip[INET_ADDRSTRLE
         socket_address.sll_addr[6]  = 0x00;/*not used*/
         socket_address.sll_addr[7]  = 0x00;/*not used*/
         
-        
-        /*set the frame header*/
         /*set the frame header*/
         memcpy((void*)buffer, (void*)dest_mac, ETH_ALEN);
         memcpy((void*)(buffer+ETH_ALEN), (void*)src_mac, ETH_ALEN);
@@ -289,10 +283,7 @@ int find_mac_address(char resolve_ip[INET_ADDRSTRLEN],char src_ip[INET_ADDRSTRLE
         
         }
     }
-    
-    
-    
-    
+
     return 0;
     
 }
@@ -399,11 +390,6 @@ int send_arp_reply()
             memcpy(parphdr_send->target_mac,parphdr_rcv->sender_mac,ETH_ALEN);
             memcpy(parphdr_send->target_ip,parphdr_rcv->sender_ip,16);
             
-            
-            
-            
-            
-            
             /*RAW communication*/
             socket_address.sll_family   = PF_PACKET;
             /*we don't use a protocoll above ethernet layer
@@ -453,15 +439,8 @@ int send_arp_reply()
         }
     }
     
-    
-    
-    
-    return 0;
+     return 0;
 
-    
-    
-    
-    
 }
 int process_arp_request()
 {
@@ -488,7 +467,16 @@ int process_arp_request()
 
 int send_arp_unix()
 {
+    int nbytes_send=0;
     printf("\n Sending resolved MAC address to the Tour Module \n");
+    if(nbytes_send = write(acceptfd,parphdr_rcv->sender_mac, 6)<0)
+    {
+        
+        printf(" Error in writing to the connection socket descriptor \n");
+        
+    }
+    printf("\n Resolved adress sent. Closing file descriptor \n");
+    close(acceptfd);
     return 0;
     
 }
@@ -497,6 +485,7 @@ int process_arp_reply()
     if(strcmp(ip_canonical,parphdr_rcv->target_ip)==0)
     {
         printf("\n ARP reply received at the source ARP module ",parphdr_rcv->target_ip);
+        
         send_arp_unix();
         
         //Update Cache
@@ -520,7 +509,7 @@ int main(int argc, char *argv[])
     arp_hdr* rcvframe;
    
     fd_set rset;
-    int acceptfd;
+    
     int maxfdp,nready,nbytes;
     char resolve_ip[INET_ADDRSTRLEN];
     char sourceCanonicalIP[INET_ADDRSTRLEN];
@@ -578,7 +567,7 @@ int main(int argc, char *argv[])
         
         //if request is received on unix domain socket
         if (FD_ISSET(unixdomain_socket, &rset))
-        {
+        {   acceptfd=0;
             acceptfd = accept(unixdomain_socket,(struct sockaddr *)&recvip, &rcvlen);
             printf("Packet received on  UNIX_SOCKET \n");
             if(nbytes = read(acceptfd, resolve_ip, INET_ADDRSTRLEN)<=0)
@@ -634,15 +623,15 @@ int main(int argc, char *argv[])
             }
             
             printf("Packet received on  PF_SOCKET of length %d bytes \n",length);
-            
-            if(parphdr_rcv->opcode == ARPOP_REQUEST)
+            printf("\n The opcode is %d \n",ntohs(parphdr_rcv->opcode));
+            if(ntohs(parphdr_rcv->opcode) == ARPOP_REQUEST)
             {
                 printf("\n Processing ARP request \n");
                 process_arp_request();
             }
             
             
-            else if(parphdr_rcv->opcode == ARPOP_REPLY)
+            else if(ntohs(parphdr_rcv->opcode) == ARPOP_REPLY)
             {
                 printf("\n Processing ARP reply \n");
                 
