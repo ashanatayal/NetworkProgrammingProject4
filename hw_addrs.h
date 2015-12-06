@@ -2,10 +2,8 @@
 #include "unp.h"
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 #include <sys/socket.h>
 #include <linux/if_ether.h>
-//#include <linux/if_arp.h>
 #include <linux/if_packet.h>
 #include <net/ethernet.h>
 #include <netinet/ip_icmp.h>
@@ -15,6 +13,15 @@
 #include <sys/un.h>
 #include <errno.h>
 #include <netinet/in_systm.h>
+#include <stdlib.h>
+#include <unistd.h>           // close()
+#include <netdb.h>            // struct addrinfo
+#include <sys/types.h>        // needed for socket(), uint8_t, uint16_t, uint32_t
+#include <netinet/in.h>       // IPPROTO_ICMP, INET_ADDRSTRLEN
+#include <sys/ioctl.h>        // macro ioctl is defined
+#include <bits/ioctls.h>      // defines values for argument "request" of ioctl.
+#include <net/if.h>           // struct ifreq
+#include <sys/time.h>         // gettimeofday()
 
 
 #define	IF_NAME		16	/* same as IFNAMSIZ    in <net/if.h> */
@@ -31,6 +38,15 @@ struct hwa_info {
   struct  hwa_info  *hwa_next;	/* next of these structures */
 };
 
+
+struct hwaddr{
+    int sll_ifindex;  /*Interface number*/
+    unsigned short sll_hatype; /*Hardware type*/
+    unsigned char sll_halen; /*Length of address*/
+    unsigned char sll_addr[8]; /*Physical LAyer address*/
+    
+    
+};
 
 
 /* function prototypes */

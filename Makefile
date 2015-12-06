@@ -15,14 +15,15 @@ arp_astayal: arp.o get_hw_addrs.o
 
 arp.o: arp.c
 	${CC} ${CFLAGS} -c arp.c
+
+tour_astayal: tour.o get_hw_addrs.o
+	${CC} ${FLAGS} -o tour_astayal tour.o get_hw_addrs.o ${LIBS}
+tour.o: tour.c
+	${CC} ${CFLAGS} -c tour.c	
+	
 get_hw_addrs.o: get_hw_addrs.c
 	${CC} ${CFLAGS} -c get_hw_addrs.c
 
-tour_astayal: tour.o 
-	${CC} ${FLAGS} -o tour_astayal tour.o ${LIBS}
-tour.o: tour.c
-	${CC} ${CFLAGS} -c tour.c
-	
 clean:
 	rm arp_astayal arp.o tour_astayal tour.o
 
