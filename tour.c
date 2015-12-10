@@ -1,10 +1,10 @@
 #include "hw_addrs.h"
 
 #define IP_PROTOCOL 10
-#define MULTICAST_IP "220.255.255.19"
+#define MULTICAST_IP "239.255.255.186"
 #define MPORT 13854
 #define IDENTIFICATION 222
-#define ARP_PATH "kimi"
+#define ARP_PATH "ashana"
 #define ETH_HDRLEN 14  // Ethernet header length
 #define IP4_HDRLEN 20  // IPv4 header length
 #define ICMP_HDRLEN 8  // ICMP header length for echo request, excludes data
@@ -20,8 +20,72 @@ struct hwaddr HWaddr;
 char previousnode[MAXLINE];
 char currentnode[MAXLINE];
 pid_t   pid; 
+int tourendflag = 0;
+char ping_list[10][INET_ADDRSTRLEN];  //ping list to check wether previous node has been already processed 
 
-char* make_packet(int argc, char const *argv[])
+
+int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
+{
+	struct hostent *he,*he1;
+	char srcIP[INET_ADDRSTRLEN],destIP[INET_ADDRSTRLEN];
+	int sendbytes;
+	struct sockaddr_in destinationaddr;
+	
+	char* payload_buffer = (char*)malloc(len);
+	payload_buffer = packet + sizeof(struct iphdr);
+
+	payload_buffer[1] = payload_buffer[1] + 4;  //(2+4) to go beyond source address
+	
+	printf("Source Node : %s \n",sourcevm);
+	printf("Destination Node : %s \n\n",dest);
+	
+	he = gethostbyname(sourcevm);
+		
+ 	if (he == NULL) { 
+		herror("gethostbyname");
+		exit(1);
+	} 
+	
+	printf("Source IP : %s \n",inet_ntop(AF_INET,he->h_addr_list[0],srcIP,INET_ADDRSTRLEN));
+	
+	
+	he1 = gethostbyname(dest);
+		
+ 	if (he1 == NULL) { 
+		herror("gethostbyname");
+		exit(1);
+	} 
+	
+	
+	
+	printf("Destination IP : %s \n\n",inet_ntop(AF_INET,he1->h_addr_list[0],destIP,INET_ADDRSTRLEN));
+	
+	struct iphdr *iph = (struct iphdr *)packet;
+	
+	//adding source and destination Ip to header
+	iph->saddr = inet_addr(srcIP);
+	iph->daddr = inet_addr(destIP);
+	
+
+	bzero(&destinationaddr,sizeof(destinationaddr));
+	destinationaddr.sin_family = AF_INET;
+	destinationaddr.sin_addr.s_addr = iph->daddr;
+
+	
+	printf("Sending packet on route traversal socket to next node in tour %s\n\n",dest);
+
+	sendbytes = sendto(rt,packet,sizeof(struct iphdr) + payload_buffer[0],0,(struct sockaddr*)&destinationaddr,sizeof(struct sockaddr));
+	if(sendbytes < 0)
+	{
+		printf("sendto function error %d \n", errno);
+	} 
+	
+	printf("*********************************************************\n\n");
+	return 0;
+}
+
+
+void make_packet(int argc, char const *argv[],char *dest)
 {
 	char listTour[argc+1][MAXLINE],temp[INET_ADDRSTRLEN],temp1[INET_ADDRSTRLEN];
 	struct sockaddr_in sasend, sarecv;
@@ -111,69 +175,12 @@ char* make_packet(int argc, char const *argv[])
 
     mcast_join(udprecv_socket, (struct sockaddr*)&sasend, salen, NULL, 0);
 
-	return buffer; 
+	//sending packet on rt socket
+	send_packet(sourcevm,dest,buffer); 
 }
 
 
-int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
-{
-	struct hostent *he,*he1;
-	char srcIP[INET_ADDRSTRLEN],destIP[INET_ADDRSTRLEN];
-	int sendbytes;
-	struct sockaddr_in destinationaddr;
-	
-	char* payload_buffer = (char*)malloc(len);
-	payload_buffer = packet + sizeof(struct iphdr);
 
-	payload_buffer[1] = payload_buffer[1] + 4;  //(2+4) to go beyond source address
-	
-	printf("Source Node : %s \n",sourcevm);
-	printf("Destination Node : %s \n\n",dest);
-	
-	he = gethostbyname(sourcevm);
-		
- 	if (he == NULL) { 
-		herror("gethostbyname");
-		exit(1);
-	} 
-	
-	printf("Source IP : %s \n",inet_ntop(AF_INET,he->h_addr_list[0],srcIP,INET_ADDRSTRLEN));
-	
-	
-	he1 = gethostbyname(dest);
-		
- 	if (he1 == NULL) { 
-		herror("gethostbyname");
-		exit(1);
-	} 
-	
-	
-	
-	printf("Destination IP : %s \n\n",inet_ntop(AF_INET,he1->h_addr_list[0],destIP,INET_ADDRSTRLEN));
-	
-	struct iphdr *iph = (struct iphdr *)packet;
-	
-	//adding source and destination Ip to header
-	iph->saddr = inet_addr(srcIP);
-	iph->daddr = inet_addr(destIP);
-	
-
-	bzero(&destinationaddr,sizeof(destinationaddr));
-	destinationaddr.sin_family = AF_INET;
-	destinationaddr.sin_addr.s_addr = iph->daddr;
-
-	
-	printf("Sending packet on route traversal socket to next node in tour %s\n\n",dest);
-
-	sendbytes = sendto(rt,packet,sizeof(struct iphdr) + payload_buffer[0],0,(struct sockaddr*)&destinationaddr,sizeof(struct sockaddr));
-	if(sendbytes < 0)
-	{
-		printf("sendto function error %d \n", errno);
-	} 
-	
-	printf("*********************************************************\n\n");
-	return 0;
-}
 
 int areq (struct sockaddr *IPaddr, socklen_t sockaddrlen, struct hwaddr *HWaddr)
 {
@@ -477,7 +484,7 @@ void echo_request()
         exit(1);
                 
     }
-
+	free(buffer);
 	//printf("Ethernet Packet sent \n");
 	
  }
@@ -489,12 +496,35 @@ void sig_alrm (int signo)
     alarm(1);
     return;
  }
+ 
+int sendmulticastmsg(char* multicastmsg,struct sockaddr_in multicastaddr){
+
+	int sendbytes;
+	
+	printf("Node %s. Sending :<%s> \n",currentnode,multicastmsg);
+	sendbytes = sendto(udpsend_socket, multicastmsg, 150, 0, (struct sockaddr*)&multicastaddr, sizeof(multicastaddr));
+
+	if (sendbytes < 0)
+	{
+		printf("sendto error for multicast message: %d\n", errno);
+	}
+}
+
+
+void multicastreply(char* multicastmsg,struct sockaddr_in multicastaddr){
+
+		if()
+			sprintf(multicastmsg, "<<<<<Node %s .I am a member of the group. >>>>> \n", currentnode);
+			sendmulticastmsg(multicastmsg,mcaddr);
+			
+
+}
 
 int main(int argc, char const *argv[])
 {
 	
 	
-	int i,len;
+	int i,len,l;
 	const int on = 1;
 	char packet[MAXLINE];
 	char dest[MAXLINE];
@@ -514,17 +544,23 @@ int main(int argc, char const *argv[])
 	char str[INET_ADDRSTRLEN],nextip[INET_ADDRSTRLEN],previousip[INET_ADDRSTRLEN];
 	struct hostent *he1;
 	struct sockaddr_in nexthopaddr,previoushopaddr;
-	//char previousnode[MAXLINE];
+
 					
 	char multicast[16];
 	char temp[MAXLINE];
 	struct sockaddr_in sasend, sarecv;
-	socklen_t salen;
+	socklen_t salen,mclen;
 	
 	struct sockaddr_in pgaddr;
 	struct timeval tval;
 	int recvbytes;
 	char pgbuff[MAXLINE];
+	int pingcount=0;
+    int flag;
+	char multicastmsg[MAXLINE];
+	int multicastbyte;
+	char multicastbuff[MAXLINE];
+	struct sockaddr_in mcaddr;
 	
 	if(argc < 1)
     {
@@ -589,7 +625,7 @@ int main(int argc, char const *argv[])
 	
 
 	
-	if(argc >= 2 && argc <= 21)
+	if(argc >= 2)
 	{   //limiting number of nodes entered by user to be 20
 			gethostname(sourcevm, sizeof sourcevm);
 			printf("Source vm : %s \n",sourcevm);
@@ -610,17 +646,12 @@ int main(int argc, char const *argv[])
 			strcpy(dest,argv[1]); //first time destination is first node entered through command line
 			
 			//creating packet i.e data and header
-			packet1 = make_packet(argc,argv);
+			make_packet(argc,argv,dest);
 		
 			
-			//sending packet on rt socket
-			send_packet(sourcevm,dest,packet1);
+			
 	}
-	else if(argc > 21)
-	{
-			printf("more than 20 nodes entered. Please enter less then 20 nodes \n");
-			exit(1);
-	}
+
 	
 	Signal(SIGALRM, sig_alrm);
 	
@@ -681,11 +712,7 @@ int main(int argc, char const *argv[])
 					if(count == 1)
 					{
 						printf("%s node is visited for the first time \n\n",currentnode);
-						 
-						
-						
-					
-						
+	
 						memcpy(&multicast,&rt_recv_payload[recvlen-6],4);
 
 						inet_ntop(AF_INET,multicast,temp,INET_ADDRSTRLEN);
@@ -699,8 +726,13 @@ int main(int argc, char const *argv[])
 						
 						memcpy(&sarecv, &sasend, salen);
 						bind(udprecv_socket, (struct sockaddr*)&sarecv, salen);
+						
+						Mcast_join(udprecv_socket, (struct sockaddr*)&sasend, salen, NULL, 0);
+						Mcast_set_loop(udprecv_socket, 1);
 
-						mcast_join(udprecv_socket, (struct sockaddr*)&sasend, salen, NULL, 0); 
+						setsockopt(udprecv_socket, IPPROTO_IP, IP_MULTICAST_TTL, (void *) &on, sizeof(on));
+
+						//mcast_join(udprecv_socket, (struct sockaddr*)&sasend, salen, NULL, 0); 
 
 					}
 					else
@@ -719,13 +751,43 @@ int main(int argc, char const *argv[])
 							printf("call areq now \n");
 							socklen = sizeof(struct sockaddr_in);
 							areq((struct sockaddr *)&previoushopaddr,socklen,&HWaddr);
-							printf("Pinging previous node \n");
-							printf("PING %s (%s): %d data bytes\n\n", previousip, previousip, DATALEN);
-							sig_alrm (SIGALRM); 
+							
+							
+							flag=0;
+								
+								for(l=0;l<10;l++)
+								{
+								
+									if(strcmp(ping_list[l],previousip) == 0)
+									{
+										flag=1;
+										break;
+									}
+								}   
+								 	
+								if(flag==1)
+								{
+									printf("ping already processed from this node to previous node \n");
+									printf("previous ping continuing..... \n");
+									continue;
+								}
+								else if(flag == 0)
+								{
+									strcpy(ping_list[pingcount],previousip);
+									pingcount++;
+									printf("PING %s (%s): %d data bytes\n\n", previousip, previousip, DATALEN);
+									sig_alrm (SIGALRM); 
+									
+									sleep(5);
+	
+									sprintf(multicastmsg, "<<<<< This is node %s .  Tour has ended .  Group members please identify yourselves. >>>>> \n", currentnode);
+									sendmulticastmsg(multicastmsg,sasend);
+								}
 							continue;
 						
 						}
-						else{
+						else
+						{
 								next_ptr = rt_recv_payload + rt_recv_payload[1];
 
 								memcpy(str,next_ptr,4);
@@ -743,14 +805,42 @@ int main(int argc, char const *argv[])
 								socklen = sizeof(struct sockaddr_in);
 								
 								areq((struct sockaddr *)&previoushopaddr,socklen,&HWaddr);
-								
+
 								printf("Pinging previous node \n");
-								printf("PING %s (%s): %d data bytes\n\n", previousip, previousip, DATALEN);
-								sig_alrm (SIGALRM); 
-								continue;
+								
+								flag=0;
+								
+								for(l=0;l<10;l++)
+								{
+								
+									if(strcmp(ping_list[l],previousip) == 0)
+									{
+										flag=1;
+										break;
+									}
+								}   
+								 	
+								if(flag==1)
+								{
+									printf("ping already processed from this node to previous node \n");
+									continue;
+								}
+								else if(flag == 0)
+								{
+									strcpy(ping_list[pingcount],previousip);
+									pingcount++;
+									printf("PING %s (%s): %d data bytes\n\n", previousip, previousip, DATALEN);
+									sig_alrm (SIGALRM); 
+								}
+							
+									
+							 continue;	
 						}
-					
+
+								
 			}
+					
+			
 			else
 			{
 					printf("Received Invalid Packet.Ignoring Packet \n");
@@ -773,8 +863,20 @@ int main(int argc, char const *argv[])
 		} 
 		
 		//if packet is received on unix domain socket
-		/* if (FD_ISSET(udprecv_socket, &rset))
+		if (FD_ISSET(udprecv_socket, &rset))
         {
-		} */
+		
+			memset(multicastbuff, 0, sizeof(multicastbuff));
+			memset (&mcaddr, 0, sizeof (mcaddr));
+			socklen_t mclen = sizeof(mcaddr);
+			multicastbyte = recvfrom(udprecv_socket, multicastbuff, MAXLINE, 0, (struct sockaddr*)&mcaddr, &mclen);
+
+			if(multicastbyte > 0){
+				printf("Node %s. Received <%s> \n",currentnode,multicastbuff);
+				alarm(0);  //stop pinging
+				multicastreply(multicastmsg,mcaddr);
+			}
+				
+		}
 	}
 }
