@@ -17,8 +17,8 @@ int pg,rt,udpsend_socket,pf_socket,udprecv_socket;
 char sourcevm[5];
 int len;
 struct hwaddr HWaddr;
-char previousnode[MAXLINE];
-char currentnode[MAXLINE];
+char previousnode[6];
+char currentnode[6];
 pid_t   pid; 
 int tourendflag;
 int pingendflag;
@@ -26,9 +26,9 @@ int nsent;
 char ping_list[10][INET_ADDRSTRLEN];  //ping list to check wether previous node has been already processed 
 
 
-int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
+int send_packet(char sourcevm[6],char dest[6],char packet[MAXLINE])
 {
-	struct hostent *he,*he1;
+	struct hostent *he2,*he3;
 	char srcIP[INET_ADDRSTRLEN],destIP[INET_ADDRSTRLEN];
 	int sendbytes;
 	struct sockaddr_in destinationaddr;
@@ -41,26 +41,26 @@ int send_packet(char sourcevm[MAXLINE],char dest[MAXLINE],char packet[MAXLINE])
 	printf("Source Node : %s \n",sourcevm);
 	printf("Destination Node : %s \n\n",dest);
 	
-	he = gethostbyname(sourcevm);
+	
+	he2 = gethostbyname(sourcevm);
 		
- 	if (he == NULL) { 
+ 	if (he2 == NULL) { 
 		herror("gethostbyname");
 		exit(1);
 	} 
 	
-	printf("Source IP : %s \n",inet_ntop(AF_INET,he->h_addr_list[0],srcIP,INET_ADDRSTRLEN));
-	
-	
-	he1 = gethostbyname(dest);
+	printf("Source IP : %s \n",inet_ntop(AF_INET,he2->h_addr_list[0],srcIP,INET_ADDRSTRLEN));
+
+	he3 = gethostbyname(dest);
 		
- 	if (he1 == NULL) { 
+ 	if (he3 == NULL) { 
 		herror("gethostbyname");
 		exit(1);
 	} 
 	
 	
 	
-	printf("Destination IP : %s \n\n",inet_ntop(AF_INET,he1->h_addr_list[0],destIP,INET_ADDRSTRLEN));
+	printf("Destination IP : %s \n\n",inet_ntop(AF_INET,he3->h_addr_list[0],destIP,INET_ADDRSTRLEN));
 	
 	struct iphdr *iph = (struct iphdr *)packet;
 	
@@ -103,6 +103,7 @@ void make_packet(int argc, char const *argv[],char *dest)
 	char buffer[MAXLINE];
 	
 	/**********************PAYLOAD*****************/
+	
 	he = gethostbyname(sourcevm);
 	if (he == NULL) { 
 		herror("gethostbyname");
@@ -281,7 +282,7 @@ void proc(char *ptr, ssize_t len, struct timeval *tvrecv)
      struct icmp *icmp;
      struct timeval *tvsend;
 	 
-	struct hostent *he;
+	struct hostent *he4;
 	char paddr[INET_ADDRSTRLEN];
 
 	 //printf("previous node :%s \n",previousnode);
@@ -303,9 +304,10 @@ void proc(char *ptr, ssize_t len, struct timeval *tvrecv)
          tvsend = (struct  timeval  *) icmp->icmp_data;
          tv_sub (tvrecv, tvsend);
          rtt = tvrecv->tv_sec * 1000.0 + tvrecv->tv_usec / 1000.0;
-		 
-		he = gethostbyname(previousnode);
-		if (he == NULL) { 
+		
+		
+		he4 = gethostbyname(previousnode);
+		if (he4 == NULL) { 
 		herror("gethostbyname");
 		exit(1);
 		}
@@ -313,7 +315,7 @@ void proc(char *ptr, ssize_t len, struct timeval *tvrecv)
 
 		
         printf ("%d bytes from %s: seq=%u, ttl=%d, rtt=%.3f ms\n",
-                 icmplen,inet_ntop(he->h_addrtype,he->h_addr_list[0],paddr,INET_ADDRSTRLEN),
+                 icmplen,inet_ntop(he4->h_addrtype,he4->h_addr_list[0],paddr,INET_ADDRSTRLEN),
                  icmp->icmp_seq, ip->ip_ttl, rtt);
 				 
 		
@@ -339,7 +341,7 @@ void echo_request()
 	struct ethhdr *eh = (struct ethhdr *)etherhead;
 	int     icmplen;
 	            
-	struct hostent *he;
+	struct hostent *he5,*he6;
 	struct hwa_info	*hwa, *hwahead;
     struct sockaddr	*sa;
     char   *ptr;
@@ -395,23 +397,24 @@ void echo_request()
 	dst_mac[6] = 0x00;
 	dst_mac[7] = 0x00;
 
-	he = gethostbyname(currentnode);
-	if (he == NULL) { 
+	
+	he5 = gethostbyname(currentnode);
+	if (he5 == NULL) { 
 		herror("gethostbyname");
 		exit(1);
 	}
 	bzero(src_ip,sizeof(src_ip));
-	inet_ntop(he->h_addrtype,he->h_addr_list[0],src_ip,INET_ADDRSTRLEN);
+	inet_ntop(he5->h_addrtype,he5->h_addr_list[0],src_ip,INET_ADDRSTRLEN);
 	//printf("\n%s source ip\n",src_ip);
 	
 	
-	he = gethostbyname(previousnode);
-	if (he == NULL) { 
+	he6 = gethostbyname(previousnode);
+	if (he6 == NULL) { 
 		herror("gethostbyname");
 		exit(1);
 	}
 	bzero(dst_ip,sizeof(dst_ip));
-	inet_ntop(he->h_addrtype,he->h_addr_list[0],dst_ip,INET_ADDRSTRLEN);
+	inet_ntop(he6->h_addrtype,he6->h_addr_list[0],dst_ip,INET_ADDRSTRLEN);
 	//printf("\n%s destination ip \n",dst_ip);
 
 	//ip header
@@ -482,7 +485,7 @@ void echo_request()
 	// ICMP header
 	memcpy ((void *)(buffer + 14 + 20), (void *)send_icmphdr, icmplen);
 	
-	if(pingendflag != 0){
+	if(pingendflag != 1){
 	send_result = sendto(pf_socket, buffer, ETH_PACKET_LEN, 0,
                                  (struct sockaddr*)&addr, sizeof(addr));
 								 
@@ -532,10 +535,12 @@ int sendmulticastmsg(char* multicastmsg){
 }
 
 
-void multicastreply(char* multicastmsg){
+int multicastreply(char* multicastmsg){
 	
 	sprintf(multicastmsg, "<<<<<Node %s .I am a member of the group. >>>>> \n", currentnode);
 	sendmulticastmsg(multicastmsg);
+	return 0;
+	
 	
 }
 
@@ -553,25 +558,21 @@ int main(int argc, char const *argv[])
     struct sockaddr_in rtaddr;
 	char    time_buff[MAXLINE];
     time_t ticks;
-	struct hostent *he;
+	struct hostent *he7;
 	int count = 0;
 	int recvlen,ptr;
 	char* packet1;
 	socklen_t socklen,sock_len;
-	
 	char* next_ptr;
 	char str[INET_ADDRSTRLEN],nextip[INET_ADDRSTRLEN],previousip[INET_ADDRSTRLEN];
-	struct hostent *he1;
-	struct sockaddr_in nexthopaddr,previoushopaddr;
-
-					
+	struct hostent *he8;
+	struct sockaddr_in nexthopaddr,previoushopaddr;		
 	char multicast[16];
 	char temp[MAXLINE];
 	struct sockaddr_in sasend, sarecv,multicastaddr;
 	socklen_t salen,mclen;
-	
 	struct sockaddr_in pgaddr;
-	struct timeval tval;
+	struct timeval tval,tv1;
 	int recvbytes;
 	char pgbuff[MAXLINE];
 	int pingcount=0;
@@ -580,11 +581,7 @@ int main(int argc, char const *argv[])
 	int multicastbyte;
 	char multicastbuff[MAXLINE];
 	struct sockaddr_in mcaddr;
-    {
-        printf("error");
-    }
-	
-	
+	tourendflag = 0;
 	//creating 4 sockets two IP raw socket, PF_Packet, UDP socket 
 	
 	//ping socket for receiving ICMP echo reply messages
@@ -672,12 +669,10 @@ int main(int argc, char const *argv[])
 			
 			//creating packet i.e data and header
 			make_packet(argc,argv,dest);
-		
-			
+
 			
 	}
 
-	
 	Signal(SIGALRM, sig_alrm);
 	
 	while(1)
@@ -688,10 +683,10 @@ int main(int argc, char const *argv[])
 		FD_SET(udprecv_socket, &rset);
         fdp = max(rt,pg) ;
 		maxfdp = max(fdp,udprecv_socket);
-   
-        if ((nready = select(maxfdp+1, &rset, NULL, NULL, NULL)) < 0)
+ 
+		nready = select(maxfdp+1, &rset, NULL, NULL, &tv1);
+        if ( nready < 0)
         {
-            //printf(" Select error: %d\n", errno);
             continue;
         }
 		
@@ -717,20 +712,20 @@ int main(int argc, char const *argv[])
 			{
 			
 					
-					he = gethostbyaddr(&(rt_recv_hdr->saddr),sizeof(rt_recv_hdr->saddr),AF_INET);
-					strcpy(previousnode,he->h_name);
-					printf("Previous node IP %s \n",inet_ntop(AF_INET,he->h_addr_list[0],previousip,INET_ADDRSTRLEN));
+					he7 = gethostbyaddr(&(rt_recv_hdr->saddr),sizeof(rt_recv_hdr->saddr),AF_INET);
+					strcpy(previousnode,he7->h_name);
+					printf("Previous node IP %s \n",inet_ntop(AF_INET,he7->h_addr_list[0],previousip,INET_ADDRSTRLEN));
 					inet_pton(AF_INET,previousip, &previoushopaddr.sin_addr);
 					
 					printf("*********************************************************\n\n");
-					printf("Received Valid Packet from source %s \n\n",he->h_name);
+					printf("Received Valid Packet from source %s \n\n",he7->h_name);
 
 					gethostname(currentnode, sizeof currentnode);
 
 					ticks = time(NULL);
 					snprintf(time_buff, sizeof(time_buff), "%.24s\r\n", ctime(&ticks));
 
-					printf("<%s> received source routing packet from %s\n",time_buff,he->h_name);
+					printf("<%s> received source routing packet from %s\n",time_buff,he7->h_name);
 				
 					count++;
 					
@@ -820,10 +815,12 @@ int main(int argc, char const *argv[])
 								
 								
 								inet_pton(AF_INET,nextip, &nexthopaddr);
-								he1 = gethostbyaddr(&nexthopaddr, sizeof nexthopaddr, AF_INET);
 								
-								printf("next node vm %s \n",he1->h_name);
-								send_packet(currentnode,he1->h_name,rtbuffer);
+								
+								he8 = gethostbyaddr(&nexthopaddr, sizeof nexthopaddr, AF_INET);
+								
+								printf("next node vm %s \n",he8->h_name);
+								send_packet(currentnode,he8->h_name,rtbuffer);
 								
 								printf("call areq now \n");
 								
@@ -898,7 +895,14 @@ int main(int argc, char const *argv[])
 			multicastbyte = recvfrom(udprecv_socket, multicastbuff, MAXLINE, 0, (struct sockaddr*)&mcaddr, &mclen);
 			printf("Node %s. Received <%s> \n",currentnode,multicastbuff);
 			pingendflag = 1;
+			tourendflag++;
+			//if(tourendflag < 15){
 			multicastreply(multicastbuff);
+			//}
+			if(tourendflag > 15){
+				printf("End of Tour Process\n");
+				exit(1);
+			}
 			
 		}
 	}
