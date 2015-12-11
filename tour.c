@@ -2,9 +2,9 @@
 
 #define IP_PROTOCOL 10
 #define MULTICAST_IP "239.126.255.180"
-#define MPORT 13854
+#define MPORT 13852
 #define IDENTIFICATION 222
-#define ARP_PATH "ashana"
+#define ARP_PATH "kimi"
 #define ETH_HDRLEN 14  // Ethernet header length
 #define IP4_HDRLEN 20  // IPv4 header length
 #define ICMP_HDRLEN 8  // ICMP header length for echo request, excludes data
@@ -204,18 +204,26 @@ int areq (struct sockaddr *IPaddr, socklen_t sockaddrlen, struct hwaddr *HWaddr)
     char* ptr;
     int i;
     int j;
-	
+    struct timeval tv;
+    int maxfdp,nready;
+    fd_set rset;
+    int ret;
+    
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+    
     IP_in_addr = (struct sockaddr_in *)IPaddr;
-	
-	inet_ntop(AF_INET, &IP_in_addr->sin_addr, IPaddress, INET_ADDRSTRLEN);
-   // printf("\n The IP address to be resolved in AREQ is %s \n",inet_ntop(AF_INET, &IP_in_addr->sin_addr, IPaddress, INET_ADDRSTRLEN));
+    
+    inet_ntop(AF_INET, &IP_in_addr->sin_addr, IPaddress, INET_ADDRSTRLEN);
+    // printf("\n The IP address to be resolved in AREQ is %s \n",inet_ntop(AF_INET, &IP_in_addr->sin_addr, IPaddress, INET_ADDRSTRLEN));
     
     
     unixdomain_socket= socket(AF_LOCAL, SOCK_STREAM, 0);
     
     if(unixdomain_socket < 0)
     {
-        printf("\n Error in creation of Unix socket in areq \n ");
+        printf("\n Error in creation of Unix socket in areq. Check if arp is running .Exiting \n ");
+        exit(1);
     }
     
     //unlink(ARP_PATH);
@@ -227,45 +235,77 @@ int areq (struct sockaddr *IPaddr, socklen_t sockaddrlen, struct hwaddr *HWaddr)
     
     if (connect(unixdomain_socket, (struct sockaddr*)&arp_address, sizeof(arp_address)) < 0)
     {
-        printf("\n Error in connecting to unix socket in areq \n");
+        printf("\n Error in connecting to unix socket in areq. Check if areq is running \n");
     }
     
     
     if(nbytes_send = write(unixdomain_socket, IPaddress, INET_ADDRSTRLEN)<0)
     {
         
-        printf(" Error in writing to the connection socket \n");
+        printf(" Error in writing to the connection socket.Check if areq is running \n");
         
     }
-
-    if (nbytes_rcv = read(unixdomain_socket, eth_buf, 6)<0);
+    
+    while(1)
     {
-        //printf("Read Error on the connection socket \n");
+        
+        FD_ZERO(&rset);
+        FD_SET(unixdomain_socket, &rset);
+        
+        if((ret= select((unixdomain_socket + 1), &rset, NULL, NULL, &tv))<0)
+        {
+            
+            if (errno == EINTR)
+                continue;
+            else
+            {
+                perror("Select() areq ");
+                return 0;
+            }
+            
+        }
+        
+        if (ret == 0)
+        {
+            printf("areq() timeout .Closing unixdomain socket connection.\n");
+            close(unixdomain_socket);
+            return 0;
+        }
+        
+        
+        if (FD_ISSET(unixdomain_socket, &rset))
+        {
+            
+            //printf("\n Waiting on Read \n");
+            if (nbytes_rcv = read(unixdomain_socket, eth_buf, 6)<0);
+            {
+                //printf("Read Error on the connection socket \n");
+            }
+            
+            //printf(" %d bytes received from socket \n",nbytes_rcv);
+            
+            
+           // printf("Destination MAC Address = ");
+            ptr = eth_buf;
+            
+            i = 6;
+            
+            for(j=0;j<6;j++){
+                
+                HWaddr->sll_addr[j] = eth_buf[j] & 0xff;
+            }
+            
+           /*  do {
+                
+                printf("%.2x%s", *ptr++ & 0xff, (i == 1) ? " " : ":");
+                
+            } while (--i > 0); */
+            
+            printf("\n");
+            
+            return 0;
+        }
     }
-    
-    //printf(" %d bytes received from socket \n",nbytes_rcv);
-    
-    
-  //printf("Destination MAC Address = ");
-    ptr = eth_buf;
-
-    i = 6;
-  
-	for(j=0;j<6;j++){
-	  
-	   HWaddr->sll_addr[j] = eth_buf[j] & 0xff;
-	 }
-         
-   /* do {
-        
-        printf("%.2x%s", *ptr++ & 0xff, (i == 1) ? " " : ":");
-        
-    } while (--i > 0);  */
-    
-	printf("\n");
-    
-    return 0;
-    
 }
 
 void tv_sub (struct timeval *out, struct timeval *in)
@@ -827,13 +867,14 @@ int main(int argc, char const *argv[])
 									strcpy(ping_list[pingcount],previousip);
 									pingcount++;
 									printf("PING %s (%s): %d data bytes\n\n", previousip, previousip, DATALEN);
-									sig_alrm(SIGALRM); 
+									sig_alrm(SIGALRM);
+									
 								}
 							sleep(5);
 									
 							sprintf(multicastmsg, "<<<<< This is node %s .  Tour has ended .  Group members please identify yourselves. >>>>> \n", currentnode);
 							sendmulticastmsg(multicastmsg);
-							continue;
+							//continue;
 						
 						}
 						else

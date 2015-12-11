@@ -1,10 +1,3 @@
-//
-//  arp.c
-//
-//
-//  Created by Karthikeyan Swaminathan on 11/29/15.
-//
-//
 
 
 #include "unp.h"
@@ -33,6 +26,8 @@
 #define ARPOP_REPLY 2
 #define GROUP_ID 3571       //Group Unique ID for the team
 #define ETH_FRAME_LENGTH 1500
+#define INCOMPLETE -1
+#define COMPLETE 1
 // Function prototypes
 char *allocate_strmem (int);
 uint8_t *allocate_ustrmem (int);
@@ -46,7 +41,8 @@ int if_index;
 int pf_packet;
 int unixdomain_socket;
 int acceptfd;
-
+int cachecount;
+int domain_packetcount;
 
 // Define a struct for ARP header
 typedef struct _arp_hdr arp_hdr;
@@ -74,13 +70,84 @@ struct Ethernet_hdr{
 
 struct arp_cache{
     int sll_ifindex;
-    int socketfd;
+    int connfd;
     unsigned short sll_hatype;
-    unsigned char sll_addr[8];
+    unsigned char sll_addr[6];
     unsigned char IP[INET_ADDRSTRLEN];
     int valid;
     
 }arpcache[50];
+
+void ntop_mac(char mac_address[6]) //Function to print MAC_ADDRESSES
+{
+    char* ptr;
+    int i;
+    ptr=mac_address;
+    
+    for(i=0;i<6;i++)
+    {
+        printf("%.2x%s", *ptr++ & 0xff, (i == 5) ? " " : ":");
+        
+    }
+    
+    printf("\n");
+}
+
+int printEthArpFrame(struct Ethernet_hdr* printEthHdr ,arp_hdr* printARPhdr )
+{
+    printf("Ethernet Frame-----------------\n");
+    
+    
+    printf("\n Source MAC Address : ");
+    ntop_mac(printEthHdr->sourceMAC);
+
+    printf("\n Destination MAC Address : ");
+    ntop_mac(printEthHdr->destMAC);
+    
+    printf("\n Protocol=  %d \n",ntohs(printEthHdr->frame_type));
+    
+    printf("ARP Message--------- \n");
+    if(ntohs(printARPhdr->opcode)==ARPOP_REPLY)
+       {
+       printf("\n ARP REPLY \n");
+       }
+    else
+       {printf("\n ARP REQUEST \n");}
+    printf("\n Source Ip %s \n",printARPhdr->sender_ip);
+    printf("\n Sender MAC Address = ");
+    ntop_mac(printARPhdr->sender_mac);
+
+    printf("\n Destination Ip %s \n",printARPhdr->target_ip);
+    printf("\n Target MAC Address = ");
+    ntop_mac(printARPhdr->target_mac);
+    printf("\n Identification \n : %d",ntohs(printARPhdr->target_mac));
+   
+       
+    printf("\n");
+    
+
+    
+    
+    return 0;
+}
+
+
+
+
+
+
+
+void print_cache(int cache_index)
+{   printf("\n Cache Table -------------------------------------------\n");
+    printf("\n Interface Index : %d\n",arpcache[cache_index].sll_ifindex);
+    printf("\n HA Type : %d\n",arpcache[cache_index].sll_hatype);
+    printf("\n IP Address: %s\n",arpcache[cache_index].IP);
+    if(arpcache[cache_index].valid==COMPLETE)
+    {    printf("\n MAC ADDRESS :              ");
+        ntop_mac(arpcache[cache_index].sll_addr);
+    }
+    printf("\n---------------------------------------------------------\n");
+}
 
 int ip_hwaddr()
 {
@@ -278,7 +345,8 @@ int find_mac_address(char resolve_ip[INET_ADDRSTRLEN],char src_ip[INET_ADDRSTRLE
             
         }
         
-        printf("\n Packet Sent \n");
+        printf("\n Broadcast message sent to find MAC addess \n");
+            printEthArpFrame(pethframehdr_send,parphdr_send);
         
         
         }
@@ -299,30 +367,56 @@ int check_cache(char resolve_ip[INET_ADDRSTRLEN])
             if(arpcache[i].valid==1)
             {
                 printf("\n IP address %s is present in AREP cache at entry %d",arpcache[i].IP,i);
-                return 1;
+                return i;
             }
         }
     }
     
-    return 0;
+    return -1;
     
     
 }
 
 
 
+
 int check_unixpacket(struct sockaddr_un recvip,char resolve_ip[INET_ADDRSTRLEN],char src_ip[INET_ADDRSTRLEN])
 {
-    if(check_cache(resolve_ip)==1)
+    int index;
+    index=check_cache(resolve_ip);
+    if(index!=-1)
     {
-        printf("\n Cache Entry found \n");
+        printf("\n Cache Entry found at index %d \n",index);
+        int nbytes_send=0;
+        printf("\n Sending resolved MAC address to the Tour Module \n");
+        if((nbytes_send = write(acceptfd,arpcache[index].sll_addr, 6))<0)
+        {
+            
+            printf(" Error in writing to the connection socket descriptor \n");
+            
+        }
+        printf("\n Resolved adress sent. Closing file descriptor \n");
+        Close(acceptfd);
+        return 1;
         
     }
     
-    else if (check_cache(resolve_ip)==0)
+    else if (index==-1)
     {
-        printf("\n Cache Entry not found \n");
-        printf("\n Source Ip Address in check_unixpacket() is %s \n",src_ip);
+        printf("\n Cache Entry not found. Updating incomplete entry in the cache \n");
+        
+        /* Cache Entry Partial Updation */
+        
+        
+        arpcache[cachecount].sll_ifindex=1;
+        arpcache[cachecount].connfd=acceptfd;
+        arpcache[cachecount].sll_hatype=1;
+        strcpy(arpcache[cachecount].IP,resolve_ip);
+        arpcache[cachecount].valid=INCOMPLETE;
+        print_cache(cachecount);
+        
+        printf("\n Broadcasting To resolve IP address %s \n",src_ip);
+        domain_packetcount=1;
         find_mac_address(resolve_ip,src_ip);
         return 0;
     }
@@ -433,7 +527,9 @@ int send_arp_reply()
                 
             }
             
-            printf("\n ARP reply Packet Sent \n");
+            printf("\n ARP reply Packet Sent to source module ARP \n");
+            printEthArpFrame(pethframehdr_send,parphdr_send);
+            
             
             
         }
@@ -444,20 +540,50 @@ int send_arp_reply()
 }
 int process_arp_request()
 {
+    int cache_index;
  
     if(strcmp(ip_canonical,parphdr_rcv->target_ip)==0)
     {
-        printf("\n Current VM is the target vm and the IP is %s ",parphdr_rcv->target_ip);
+        printf("\n ARP request arrived. VM is the target vm and the IP to be resolved is %s ",parphdr_rcv->target_ip);
+        printEthArpFrame(pethframehdr_rcv,parphdr_rcv);
         send_arp_reply();
         
-        //Update Cache
+        printf("Updating Sender Cache");
+        arpcache[cachecount].sll_ifindex=1;
+        arpcache[cachecount].sll_hatype=1;
+        strcpy(arpcache[cachecount].IP,parphdr_rcv->sender_ip);
+        arpcache[cachecount].valid=COMPLETE;
+        memcpy(arpcache[cachecount].sll_addr,parphdr_rcv->sender_mac,6);
+        print_cache(cachecount);
+        cachecount++;
+        
+        
         return 0;
     }
     
     else if(strcmp(ip_canonical,parphdr_rcv->target_ip)!=0)
     {
-        //Check for cache updation
+        
         printf("\n ARP Request arrived. Not the target VM \n");
+        printEthArpFrame(pethframehdr_rcv,parphdr_rcv);
+        printf("\n Checking if sender address is present in cache");
+        cache_index=check_cache(parphdr_rcv->sender_ip);
+        if(cache_index!=-1)
+        {
+            printf("\n Updating Sender Cache \n");
+            arpcache[cache_index].sll_ifindex=1;
+            arpcache[cache_index].sll_hatype=1;
+            strcpy(arpcache[cache_index].IP,parphdr_rcv->sender_ip);
+            arpcache[cache_index].valid=COMPLETE;
+            memcpy(arpcache[cache_index].sll_addr,parphdr_rcv->sender_mac,6);
+            print_cache(cache_index);
+            
+        }
+        
+        else if(cache_index==-1)
+        {
+            printf("\n Sender address not present in cache. Doing nothing \n");
+        }
         return 0;
     }
     
@@ -468,7 +594,20 @@ int process_arp_request()
 int send_arp_unix()
 {
     int nbytes_send=0;
-    printf("\n Sending resolved MAC address to the Tour Module \n");
+    printf("\n Updating Cache of destination at source module \n");
+    arpcache[cachecount].sll_ifindex=1;
+    arpcache[cachecount].sll_hatype=1;
+    strcpy(arpcache[cachecount].IP,parphdr_rcv->sender_ip);
+    arpcache[cachecount].valid=COMPLETE;
+    memcpy(arpcache[cachecount].sll_addr,parphdr_rcv->sender_mac,6);
+    print_cache(cachecount);
+
+    cachecount++;
+    
+    
+    printf("\n Sending resolved MAC address  for IP %s  to the Tour Module \n",parphdr_rcv->sender_ip);
+    printf("\n Resolved MAC address :  \n");
+    ntop_mac(parphdr_rcv->sender_mac);
     if(nbytes_send = write(acceptfd,parphdr_rcv->sender_mac, 6)<0)
     {
         
@@ -476,7 +615,7 @@ int send_arp_unix()
         
     }
     printf("\n Resolved adress sent. Closing file descriptor \n");
-    close(acceptfd);
+    Close(acceptfd);
     return 0;
     
 }
@@ -485,17 +624,19 @@ int process_arp_reply()
     if(strcmp(ip_canonical,parphdr_rcv->target_ip)==0)
     {
         printf("\n ARP reply received at the source ARP module ",parphdr_rcv->target_ip);
-        
+        printEthArpFrame(pethframehdr_rcv,parphdr_rcv);
         send_arp_unix();
         
-        //Update Cache
+        
         return 0;
     }
     
     else if(strcmp(ip_canonical,parphdr_rcv->target_ip)!=0) //Something has gone wrong
     {
         //Check for cache updation
+        
         printf("\n ARP Reply arrived but not at the source ARP \n");
+        
         return 0;
     }
     
@@ -516,9 +657,10 @@ int main(int argc, char *argv[])
     struct hostent *he;
     char odrvm[5];
     char **ip;
+    domain_packetcount=0;
     //void* rcvbuffer = (void*)malloc(ETH_FRAME_LENGTH);
     //creating pf_packet socket - packet interface on device level.
-    pf_packet = socket(PF_PACKET, SOCK_RAW, htons(PROTOCOL));
+    pf_packet = Socket(PF_PACKET, SOCK_RAW, htons(PROTOCOL));
     
     socklen_t pktlen = sizeof(receivepktAddr);
     //
@@ -534,8 +676,9 @@ int main(int argc, char *argv[])
     //creating unix domain socket
     
     
-    unixdomain_socket= socket(AF_LOCAL, SOCK_STREAM, 0);
-    if(unixdomain_socket < 0){
+    unixdomain_socket= Socket(AF_LOCAL, SOCK_STREAM, 0);
+    if(unixdomain_socket < 0)
+    {
         printf("\n Unix Domain Socket creation error\n");
         
     }
@@ -549,7 +692,7 @@ int main(int argc, char *argv[])
         printf("Unix Domain Socket bind error \n");
     }
     
-    listen(unixdomain_socket,50);
+    Listen(unixdomain_socket,50);
     //check on which socket request is coming through select
     while(1)
     {
@@ -558,7 +701,7 @@ int main(int argc, char *argv[])
         FD_SET(pf_packet, &rset);
         FD_SET(unixdomain_socket, &rset);
         maxfdp = max(pf_packet,unixdomain_socket) +1;
-        nready = select(maxfdp, &rset, NULL, NULL, NULL);
+        nready = Select(maxfdp, &rset, NULL, NULL, NULL);
         if (nready < 0)
         {
             printf(" Select error: %d\n", errno);
@@ -567,10 +710,26 @@ int main(int argc, char *argv[])
         
         //if request is received on unix domain socket
         if (FD_ISSET(unixdomain_socket, &rset))
-        {   acceptfd=0;
-            acceptfd = accept(unixdomain_socket,(struct sockaddr *)&recvip, &rcvlen);
+        {
+            if(domain_packetcount==1)
+            {
+                printf("\n Tour Module areq() closed the connection socket. Removing partial entry fromm cache table. \n");
+                arpcache[cachecount].sll_ifindex=0;
+                arpcache[cachecount].connfd=0;
+                arpcache[cachecount].sll_hatype=0;
+                bzero(&arpcache[cachecount].IP,INET_ADDRSTRLEN);
+                arpcache[cachecount].valid=0;
+                printf(" \n Cache entry emptied");
+                print_cache(cachecount);
+                domain_packetcount=0;
+                cachecount=0;
+                continue;
+            }
+            
+            acceptfd=0;
+            acceptfd = Accept(unixdomain_socket,(struct sockaddr *)&recvip, &rcvlen);
             printf("Packet received on  UNIX_SOCKET \n");
-            if(nbytes = read(acceptfd, resolve_ip, INET_ADDRSTRLEN)<=0)
+            if(nbytes = Read(acceptfd, resolve_ip, INET_ADDRSTRLEN)<=0)
                 printf("\n Error in reading IP address %d \n",nbytes);
             printf("\n IP address to be resolved is %s \n ",resolve_ip);
             
@@ -613,7 +772,7 @@ int main(int argc, char *argv[])
             
           
             int length = 0; /*length of the received frame*/
-            length = recvfrom(pf_packet, rcvbuffer, ETH_FRAME_LEN, 0,(struct sockaddr*)&rcv_pkt_addr,&rcvlen);
+            length = Recvfrom(pf_packet, rcvbuffer, ETH_FRAME_LEN, 0,(struct sockaddr*)&rcv_pkt_addr,&rcvlen);
             
             if (length == -1)
             {
@@ -637,14 +796,7 @@ int main(int argc, char *argv[])
                 
                 process_arp_reply();
             }
-            //arp_hdr* rcvframe;
-            
-            
-            
-            
-            // arpreply(pf_packet,receivepktAddr,rcvbuf);
-            
-            //return 0;
+           
             
         }
         
