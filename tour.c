@@ -802,7 +802,7 @@ int main(int argc, char const *argv[])
 					
 					if(count == 1)
 					{
-						printf("%s node is visited for the first time \n\n",currentnode);
+						printf("%s Node is visited for the First Time \n\n",currentnode);
 	
 						memcpy(&multicast,&rt_recv_payload[recvlen-6],4);
 
@@ -822,7 +822,7 @@ int main(int argc, char const *argv[])
 
 						setsockopt(udprecv_socket, IPPROTO_IP, 1, (void *) &on, sizeof(on));
 						
-						//printf("Joined Multicast Group \n");
+						printf("Joined Multicast Group \n");
 						//mcast_join(udprecv_socket, (struct sockaddr*)&sasend, salen, NULL, 0); 
 
 					}

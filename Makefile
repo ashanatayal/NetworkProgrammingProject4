@@ -16,6 +16,12 @@ arp_astayal: arp.o get_hw_addrs.o
 arp.o: arp.c
 	${CC} ${CFLAGS} -c arp.c
 
+# ping: ping.o get_hw_addrs.o
+	# ${CC} ${FLAGS} -o ping ping.o get_hw_addrs.o ${LIBS}
+	
+# ping.o: ping.c
+	# ${CC} ${CFLAGS} -c ping.c
+
 tour_astayal: tour.o get_hw_addrs.o
 	${CC} ${FLAGS} -o tour_astayal tour.o get_hw_addrs.o ${LIBS}
 tour.o: tour.c
